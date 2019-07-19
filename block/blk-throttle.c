@@ -93,7 +93,8 @@ static void throtl_pending_timer_fn(unsigned long arg);
 
 static inline struct throtl_grp *fake_d_to_tg(struct fake_device *fake_d)
 {
-	return fake_d ? container_of(fake_d, struct throtl_grp, fake_d) : NULL;
+//	return fake_d ? container_of(fake_d, struct throtl_grp, fake_d) : NULL;
+	return fake_d->tg;
 }
 
 static inline struct throtl_grp *pd_to_tg(struct blkg_policy_data *pd)
@@ -393,6 +394,17 @@ static void tg_update_has_rules(struct throtl_grp *tg)
 		tg->has_rules[rw] = (parent_tg && parent_tg->has_rules[rw]) ||
 				    (tg->bps[rw] != -1 || tg->iops[rw] != -1);
 }
+
+/* Added by zhoufang
+ * update has_rules[] if needed
+*/
+static void tg_fd_update_has_rules(struct throtl_grp *tg)
+{
+	int rw = 0;
+	for (rw = READ; rw <= RANDW; rw++)
+ 		tg->has_rules[rw] = (tg->bps[rw] != -1 || tg->iops[rw] != -1);
+}
+
 
 static void throtl_pd_online(struct blkcg_gq *blkg)
 {
@@ -1522,6 +1534,7 @@ static ssize_t tg_fd_set_conf(struct kernfs_open_file *of,
 	struct cgroup_subsys_state *pos_css;
 	int ret;
 
+	printk("the blkcg addr in conf is:%llu\n",blkcg);
 	ret = blkg_fd_conf_prep(blkcg, &blkcg_policy_throtl, buf, &fd_ctx);
 	if (ret)
 		return ret;
@@ -1549,7 +1562,7 @@ static ssize_t tg_fd_set_conf(struct kernfs_open_file *of,
 	 * blk-throttle.
 	 */
 //	blkg_for_each_descendant_pre(blkg, pos_css, ctx.blkg)
-//		tg_update_has_rules(blkg_to_tg(blkg));
+		tg_fd_update_has_rules(tg);
 
 	/*
 	 * We're already holding queue_lock and know @tg is valid.  Let's
@@ -1681,7 +1694,7 @@ static struct cftype throtl_files[] = {
 	},
 	{
 		.name = "throttle.hybrid_read_bps_device",
-		.private = offsetof(struct fake_device, bps[READ]),
+		.private = offsetof(struct throtl_grp, bps[READ]),
 		.write = tg_fd_set_conf_uint,
 	},
 	{ }	/* terminate */
@@ -1717,9 +1730,11 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
 	struct fake_device *fake_d;
 	bool throttled = false;
 
+	printk("now in blk_throtl_bio function.\n");
 	/* see throtl_charge_bio() */
 	if (bio->bi_rw & REQ_THROTTLED)
 		goto out;
+	printk("pass goto out test.\n");
 
 	/*
 	 * A throtl_grp pointer retrieved under rcu can be used to access
@@ -1728,6 +1743,7 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
 	 */
 	rcu_read_lock();
 	blkcg = bio_blkcg(bio);
+	printk("blkcg_addr = %llu\n",blkcg);
 	tg = throtl_lookup_tg(td, blkcg);
 	if (tg) {
 		bool without_limit = true;
@@ -1740,8 +1756,10 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
 			 * was included.
 			 */
 			fake_d = blkcg->fd_head;
+			printk("blkcg->fd_head addr = %llu\n",blkcg->fd_head);
 			while(fake_d != NULL)
 			{
+				printk("fake_d: id=%d,r_bps=%d,w_bps=%d,rw_bps=%d\n",fake_d->id,fake_d->tg->bps[0],fake_d->tg->bps[1],fake_d->tg->bps[2]);
 				if(queue_in_fake_d(fake_d,q))
 				{
 					if(!fake_d_has_limit(fake_d,rw,q) && !fake_d_has_limit(fake_d,RANDW,q))
@@ -1844,8 +1862,10 @@ fake_device_check:
 		fake_d = blkcg->fd_head;
 		while(fake_d != NULL) {
  			if (queue_in_fake_d(fake_d, q) && fake_d_has_limit(fake_d, rw, q)) {
+				tg = fake_d_to_tg(fake_d);
+				sq = &tg->service_queue;
 				if (sq->nr_queued[rw])
-				break;
+					break;
 
 				/* if above limits, break to queue */
 				if (!tg_may_dispatch(tg, bio, NULL))
@@ -1880,6 +1900,7 @@ fake_device_check:
 					throtl_schedule_next_dispatch(tg->service_queue.parent_sq, true);
 				}
 			}
+			fake_d = fake_d->next;
 		}
 		
 	}
@@ -2003,5 +2024,4 @@ static int __init throtl_init(void)
 }
 
 module_init(throtl_init);
-
 
