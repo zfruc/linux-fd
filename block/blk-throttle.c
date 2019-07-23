@@ -654,10 +654,11 @@ static inline void throtl_start_new_slice(struct throtl_grp *tg, bool rw)
 	tg->io_disp[rw] = 0;
 	tg->slice_start[rw] = jiffies;
 	tg->slice_end[rw] = jiffies + throtl_slice;
-	throtl_log(&tg->service_queue,
+/*	throtl_log(&tg->service_queue,
 		   "[%c] new slice start=%lu end=%lu jiffies=%lu",
 		   rw == READ ? 'R' : 'W', tg->slice_start[rw],
 		   tg->slice_end[rw], jiffies);
+*/
 }
 
 static inline void throtl_set_slice_end(struct throtl_grp *tg, bool rw,
@@ -1536,21 +1537,28 @@ static ssize_t tg_fd_set_conf(struct kernfs_open_file *of,
 
 	printk("the blkcg addr in conf is:%llu\n",blkcg);
 	ret = blkg_fd_conf_prep(blkcg, &blkcg_policy_throtl, buf, &fd_ctx);
+	printk("the ret of blkg_fd_conf_prep is : %d\n",ret);
 	if (ret)
+	{
+		printk("the ret exist, ret = %d.\n",ret);
 		return ret;
-
+	}
 //	tg = blkg_to_tg(ctx.blkg);
 //	sq = &tg->service_queue;
 
-	if (!ret)
-		ret = -1;
+	if (!fd_ctx.v)
+		fd_ctx.v = -1;
+	printk("now fd_ctx.v = %d.\n",fd_ctx.v);
 
 	tg = fake_d_to_tg(fd_ctx.fake_d);
+	printk("get tg from fake_d_to_tg. tg->bps[0] = %d.\n",tg->bps[0]);
 
 	if (is_u64)
-		*(u64 *)((void *)tg + of_cft(of)->private) = ret;
+		*(u64 *)((void *)tg + of_cft(of)->private) = fd_ctx.v;
 	else
-		*(unsigned int *)((void *)tg + of_cft(of)->private) = ret;
+		*(unsigned int *)((void *)tg + of_cft(of)->private) = fd_ctx.v;
+	printk("the parameter is_u64 = %d.\n",is_u64);
+	printk("tg->private = %d,tg->bps[0] = %d.\n",*(unsigned int *)((void *)tg + of_cft(of)->private),tg->bps[0]);
 
 	//throtl_log(&tg->service_queue,"limit change rbps=%llu wbps=%llu rwbps=%llu riops=%u wiops=%u rwiops=%u",tg->bps[READ], tg->bps[WRITE],tg->bps[RANDW],tg->iops[READ], tg->iops[WRITE],tg->iops[RANDW],);
 
@@ -1563,6 +1571,7 @@ static ssize_t tg_fd_set_conf(struct kernfs_open_file *of,
 	 */
 //	blkg_for_each_descendant_pre(blkg, pos_css, ctx.blkg)
 		tg_fd_update_has_rules(tg);
+	printk("update rules. tg->has_rules[0] = %d,tg->has_rules[1] = %d,tg->has_rules[2] = %d.\n",tg->has_rules[0],tg->has_rules[1],tg->has_rules[2]);
 
 	/*
 	 * We're already holding queue_lock and know @tg is valid.  Let's
@@ -1573,15 +1582,20 @@ static ssize_t tg_fd_set_conf(struct kernfs_open_file *of,
 	 * account recently dispatched IO with new low rate.
 	 */
 	throtl_start_new_slice(tg, 0);
+	printk("throtl_start_new_slice(tg, 0)\n");
 	throtl_start_new_slice(tg, 1);
+	printk("throtl_start_new_slice(tg, 1)\n");
 	throtl_start_new_slice(tg, 2);
+	printk("throtl_start_new_slice(tg, 2)\n");
 
 	if (tg->flags & THROTL_TG_PENDING) {
 		tg_update_disptime(tg);
+		printk("update_disaptime for pending.\n");
 //		throtl_schedule_next_dispatch(sq->parent_sq, true);
 	}
 
 	blkg_fd_conf_finish(&fd_ctx);
+	printk("conf_read_finish.\n");
 	return nbytes;
 }
 
