@@ -95,10 +95,51 @@ struct throtl_grp {
 };
 
 
+/* Added by zhoufang */
+struct fake_device_member{
+	struct request_queue 	*queue;
+
+	struct fake_device_member *next;
+
+	struct throtl_grp		*tg;
+};
+
+/* Added by zhoufang */
+/* 
+ * Fake device is a collection of multiple devices,
+ * each collection for per cgroup mapping to a fake_device.
+ * The function and defination of fake_device is similiar to throtl_grp,
+ * which is designed per cgroup per device.
+ */
+struct fake_device{
+    unsigned int    id;
+	struct fake_device_member 	*head;
+
+	bool			has_rules[3];
+	uint16_t		bps[3];
+	unsigned int	iops[3];
+
+	
+	uint16_t		bytes_disp[3];
+	unsigned int	io_disp[3];
+
+	unsigned long	slice_start[3];
+	unsigned long	slice_end[3];
+	
+	
+	struct fake_device 		*next;
+	struct throtl_grp		*tg;
+};
+
+
+/* Added by zhoufang */
+/* 
+ * Add member fake_device list;
+ */
 
 
 extern struct throtl_grp *sq_to_tg(struct throtl_service_queue *sq);
-extern void throtl_trim_slice(struct throtl_grp *tg, bool rw);
+extern void throtl_trim_slice(struct throtl_grp *tg, unsigned int rw);
 extern void throtl_update_dispatch_stats(struct blkcg_gq *blkg, u64 bytes,int rw);
 extern struct throtl_grp *throtl_lookup_create_tg(struct throtl_data *td,struct blkcg *blkcg);
 extern struct throtl_grp *throtl_lookup_tg(struct throtl_data *td,struct blkcg *blkcg);

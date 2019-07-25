@@ -37,45 +37,6 @@ enum blkg_rwstat_type {
 
 struct blkcg_gq;
 
-/* Added by zhoufang */
-struct fake_device_member{
-	struct request_queue 	*queue;
-
-	struct fake_device_member *next;
-};
-
-/* Added by zhoufang */
-/* 
- * Fake device is a collection of multiple devices,
- * each collection for per cgroup mapping to a fake_device.
- * The function and defination of fake_device is similiar to throtl_grp,
- * which is designed per cgroup per device.
- */
-struct fake_device{
-    unsigned int    id;
-	struct fake_device_member 	*head;
-
-	bool			has_rules[3];
-	uint16_t		bps[3];
-	unsigned int	iops[3];
-
-	
-	uint16_t		bytes_disp[3];
-	unsigned int	io_disp[3];
-
-	unsigned long	slice_start[3];
-	unsigned long	slice_end[3];
-	
-	
-	struct fake_device 		*next;
-	struct throtl_grp		*tg;
-};
-
-
-/* Added by zhoufang */
-/* 
- * Add member fake_device list;
- */
 
 struct blkcg {
 	struct cgroup_subsys_state	css;
@@ -714,4 +675,5 @@ static inline struct request_list *blk_rq_rl(struct request *rq) { return &rq->q
 #endif	/* CONFIG_BLOCK */
 #endif	/* CONFIG_BLK_CGROUP */
 #endif	/* _BLK_CGROUP_H */
+
 

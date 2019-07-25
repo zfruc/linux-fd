@@ -851,6 +851,16 @@ int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 EXPORT_SYMBOL_GPL(blkg_conf_prep);
 
 
+void tg_init(struct throtl_grp *tg)
+{
+	tg->bps[0] = tg->bps[1] = tg->bps[2] = -1;
+	tg->iops[0] = tg->iops[1] = tg->iops[2] = -1;
+	tg->has_rules[0] = tg->has_rules[1] = tg->has_rules[2] = false;
+	tg->bytes_disp[0] = tg->bytes_disp[1] = tg->bytes_disp[2] = 0;
+	tg->io_disp[0] = tg->io_disp[1] = tg->io_disp[2] = 0;	
+}
+
+
 int fd_member_lookup_create(struct fake_device *fake_d,struct gendisk *disk)
 {
 	struct fake_device_member *fd_member;
@@ -872,19 +882,19 @@ fd_member_alloc:
 	fd_member = kmalloc(sizeof(*fd_member), GFP_ATOMIC);
 	if (!fd_member)
 		return ERR_PTR(-ENOMEM);
+	struct throtl_grp *tg;
+	tg = kzalloc(sizeof(*tg), GFP_ATOMIC);
+	if(!tg)
+		return ERR_PTR(-ENOMEM);
+	
 	fd_member->next = fake_d->head;
 	fake_d->head = fd_member;
 	fd_member->queue = disk->queue;
+
+	tg_init(tg);
+	fd_member->tg = tg;
 }
 
-void tg_init(struct throtl_grp *tg)
-{
-	tg->bps[0] = tg->bps[1] = tg->bps[2] = -1;
-	tg->iops[0] = tg->iops[1] = tg->iops[2] = -1;
-	tg->has_rules[0] = tg->has_rules[1] = tg->has_rules[2] = false;
-	tg->bytes_disp[0] = tg->bytes_disp[1] = tg->bytes_disp[2] = 0;
-	tg->io_disp[0] = tg->io_disp[1] = tg->io_disp[2] = 0;
-}
 
 struct fake_device * fd_lookup_create(struct blkcg *blkcg, unsigned int f_id)
 {
@@ -970,10 +980,10 @@ int blkg_fd_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 	rcu_read_lock();
 //	spin_lock_irq(disk->queue->queue_lock);  // where is the corresponding unlock operation
 	printk("now we get rcu_read_lock and queue_lock addr=%llu.\n",disk->queue->queue_lock);
-	if (blkcg_policy_enabled(disk->queue, pol))
-		blkg = blkg_lookup_create(blkcg, disk->queue);
-	else
-		blkg = ERR_PTR(-EINVAL);
+//	if (blkcg_policy_enabled(disk->queue, pol))
+//		blkg = blkg_lookup_create(blkcg, disk->queue);
+//	else
+//		blkg = ERR_PTR(-EINVAL);
 
 	fake_d = fd_lookup_create(blkcg,fd_id);
 

@@ -1,4 +1,7 @@
-starttime=`date +'%Y-%m-%d %H:%M:%S'`
+set -e
+
+startTime=`date +%Y%m%d-%H:%M`
+startTime_s=`date +%s`
 #make bzImage
 #make menuconfig
 #make modules -j8
@@ -6,8 +9,10 @@ starttime=`date +'%Y-%m-%d %H:%M:%S'`
 #make
 #make install
 make
-make modules_install install
-endtime=`date +'%Y-%m-%d %H:%M:%S'`
-start_seconds=$(date --date="$starttime" +%s);
-end_seconds=$(date --date="$endtime" +%s);
-echo "本次运行时间： "$(((end_seconds-start_seconds)/60))min"
+make install
+#make modules_install install
+endTime=`date +%Y%m%d-%H:%M`
+endTime_s=`date +%s`
+sumTime=$[ $endTime_s - $startTime_s ]
+useTime=$[ $sumTime / 60 ]
+echo "$startTime ---> $endTime" "Totl:$useTime minutes"

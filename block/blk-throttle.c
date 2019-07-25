@@ -250,6 +250,21 @@ static void throtl_qnode_add_bio(struct bio *bio, struct throtl_qnode *qn,
 	}
 }
 
+
+/*
+ * Added by zhoufang. Because fake_device has no blkg, 
+ * we create a new funciton like throtl_qnode_add_bio
+ */
+static void throtl_qnode_add_bio_withoutblkg(struct bio *bio, struct throtl_qnode *qn,
+ 				struct list_head *queued)
+{
+	bio_list_add(&qn->bios, bio);
+	if (list_empty(&qn->node)) {
+		list_add_tail(&qn->node, queued);
+//		blkg_get(tg_to_blkg(qn->tg));
+	}
+}
+
 /**
  * throtl_peek_queued - peek the first bio on a qnode list
  * @queued: the qnode list to peek
@@ -381,6 +396,52 @@ static void throtl_pd_init(struct blkcg_gq *blkg)
 }
 
 /*
+ * Added by zhoufang.
+ * init the fake device throtl_grp
+ */
+static void fd_throtl_init(struct blkcg *blkcg)
+{
+	struct throtl_grp *tg;
+	struct throtl_data *td;
+	struct throtl_service_queue *parent_sq;
+	unsigned long flags;
+	int rw;
+	struct fake_device *fake_d= blkcg->fd_head;
+	struct fake_device_member *fd_member;
+
+
+	while(fake_d != NULL){
+		tg = fake_d->tg;
+		for (rw = READ; rw <= WRITE; rw++) {
+			throtl_qnode_init(&tg->qnode_on_self[rw], tg);
+			throtl_qnode_init(&tg->qnode_on_parent[rw], tg);
+		}
+		RB_CLEAR_NODE(&tg->rb_node);
+
+		fd_member = fake_d->head;
+		while(fd_member != NULL){
+			tg = fd_member->tg;
+
+			throtl_service_queue_init(&tg->service_queue, &(fd_member->queue->td->service_queue));
+
+			for (rw = READ; rw <= WRITE; rw++) {
+				throtl_qnode_init(&tg->qnode_on_self[rw], tg);
+				throtl_qnode_init(&tg->qnode_on_parent[rw], tg);
+			}
+			RB_CLEAR_NODE(&tg->rb_node);
+
+			spin_lock_irqsave(&tg_stats_alloc_lock, flags);
+			list_add(&tg->stats_alloc_node, &tg_stats_alloc_list);
+			schedule_delayed_work(&tg_stats_alloc_work, 0);
+			spin_unlock_irqrestore(&tg_stats_alloc_lock, flags);
+	
+		}
+
+		fake_d = fake_d->next;
+	}
+}
+
+/*
  * Set has_rules[] if @tg or any of its parents have limits configured.
  * This doesn't require walking up to the top of the hierarchy as the
  * parent's has_rules[] is guaranteed to be correct.
@@ -397,12 +458,23 @@ static void tg_update_has_rules(struct throtl_grp *tg)
 
 /* Added by zhoufang
  * update has_rules[] if needed
-*/
-static void tg_fd_update_has_rules(struct throtl_grp *tg)
+ * We didn't consider parent tree assuming no parent-child scenes
+ */
+static void tg_fd_update_has_rules_recursively(struct fake_device *fake_d)
 {
 	int rw = 0;
+	struct fake_device_member *fd_member = fake_d->head;
+	struct throtl_grp *tg = fake_d_to_tg(fake_d);
 	for (rw = READ; rw <= RANDW; rw++)
  		tg->has_rules[rw] = (tg->bps[rw] != -1 || tg->iops[rw] != -1);
+
+	while(fd_member != NULL){
+		tg = fd_member->tg;
+		
+		for (rw = READ; rw <= RANDW; rw++)
+			tg->has_rules[rw] = (tg->bps[rw] != -1 || tg->iops[rw] != -1);
+	}
+
 }
 
 
@@ -654,12 +726,29 @@ static inline void throtl_start_new_slice(struct throtl_grp *tg, bool rw)
 	tg->io_disp[rw] = 0;
 	tg->slice_start[rw] = jiffies;
 	tg->slice_end[rw] = jiffies + throtl_slice;
-/*	throtl_log(&tg->service_queue,
-		   "[%c] new slice start=%lu end=%lu jiffies=%lu",
-		   rw == READ ? 'R' : 'W', tg->slice_start[rw],
-		   tg->slice_end[rw], jiffies);
-*/
+//	throtl_log(&tg->service_queue,
+//		   "[%c] new slice start=%lu end=%lu jiffies=%lu",
+//		   rw == READ ? 'R' : 'W', tg->slice_start[rw],
+//		   tg->slice_end[rw], jiffies);
 }
+
+/*
+ * Added by zhoufang
+ */
+static inline void throtl_start_new_slice_recursively(struct fake_device *fake_d,bool rw)
+{
+	struct fake_device_member *fd_member = fake_d->head;
+	struct throtl *tg = fake_d_to_tg(fake_d);
+
+	throtl_start_new_slice(tg,rw);
+
+	while(fd_member != NULL){
+		tg = fd_member->tg;
+		
+		throtl_start_new_slice(tg,rw);
+	}
+}
+
 
 static inline void throtl_set_slice_end(struct throtl_grp *tg, bool rw,
 					unsigned long jiffy_end)
@@ -687,7 +776,7 @@ static bool throtl_slice_used(struct throtl_grp *tg, bool rw)
 }
 
 /* Trim the used slices and adjust slice start accordingly */
- void throtl_trim_slice(struct throtl_grp *tg, bool rw)
+ void throtl_trim_slice(struct throtl_grp *tg, unsigned int rw)
 {
 	unsigned long nr_slices, time_elapsed, io_trim;
 	u64 bytes_trim, tmp;
@@ -743,6 +832,19 @@ static bool throtl_slice_used(struct throtl_grp *tg, bool rw)
 		   "[%c] trim slice nr=%lu bytes=%llu io=%lu start=%lu end=%lu jiffies=%lu",
 		   rw == READ ? 'R' : 'W', nr_slices, bytes_trim, io_trim,
 		   tg->slice_start[rw], tg->slice_end[rw], jiffies);
+}
+
+void throtl_trim_slice_recursively(struct fake_device *fake_d, unsigned int rw)
+{
+	struct throtl_grp *tg = fake_d_to_tg(fake_d);
+	struct fake_device_member *fd_member = fake_d->head;
+
+	throtl_trim_slice(tg,rw);
+
+	while(fd_member != NULL){
+		tg = fd_member->tg;
+		throtl_trim_slice(tg,rw);
+	}
 }
 
 /* tg->iops[rw]!=-1 or tg->iops[RANDW]!=-1 both will lead to tg_with_in_iops_limit,should check tg->iops[] inside this function */
@@ -1081,10 +1183,24 @@ static void throtl_charge_bio(struct throtl_grp *tg, struct bio *bio)
 	 */
 	if (!(bio->bi_rw & REQ_THROTTLED)) {
 		bio->bi_rw |= REQ_THROTTLED;
-		throtl_update_dispatch_stats(tg_to_blkg(tg),
-					     bio->bi_iter.bi_size, bio->bi_rw);
+		/* disable stats function. Modified by zhoufang*/
+//		throtl_update_dispatch_stats(tg_to_blkg(tg),
+//					     bio->bi_iter.bi_size, bio->bi_rw);
 	}
 }
+
+static void throtl_charge_bio_recursively(struct fake_device *fake_d, struct bio *bio)
+{
+	struct fake_device_member *fd_member = fake_d->head;
+	struct throtl_grp	*tg = fake_d_to_tg(fake_d);
+
+	throtl_charge_bio(tg,bio);
+	while(fd_member != NULL){
+		tg = fd_member->tg;
+		throtl_charge_bio(tg,bio);
+	}
+}
+
 
 /**
  * throtl_add_bio_tg - add a bio to the specified throtl_grp
@@ -1119,6 +1235,81 @@ static void throtl_add_bio_tg(struct bio *bio, struct throtl_qnode *qn,
 	throtl_enqueue_tg(tg);
 }
 
+static struct fake_device_member *queue_to_fd_member(struct fake_device *fake_d, 
+										struct request_queue *q)
+{
+	struct fake_device_member *fd_member = fake_d->head;
+	
+	while (fd_member != NULL)
+	{
+		if(fd_member->queue == q)
+			return fd_member;
+		fd_member = fd_member->next;
+	}
+
+	return NULL;
+}
+
+/*
+ * Added by zhoufang. fake_device_member's tg->service_queue->nr_queued might change
+ * if pending_timer_fn was called. So we have update the number of queued bio in 
+ * fake_d->tg, which counted the number of queued bio for eah fake_deivce_member->tg
+ */
+static void update_fd_queuenr(struct fake_device *fake_d)
+{
+	struct fake_device_member *fd_member;
+	unsigned int total = 0;
+	int rw = 0;
+	for(rw = READ;rw <= WRITE; rw++){
+		fd_member = fake_d->head;
+		while(fd_member != NULL)
+		{
+			total += fd_member->tg->service_queue.nr_queued[rw];
+			fd_member = fd_member->next;
+		}
+		if(total <= fake_d->tg->service_queue.nr_queued[rw])
+			fake_d->tg->service_queue.nr_queued[rw] = total;
+		else
+			printk("the nr_queued total bigger than fake_d. total = %u, record = %u.\n",total,fake_d->tg->service_queue.nr_queued[rw]);
+	}
+	
+}
+
+
+static void throtl_add_bio_fd_tg(struct bio *bio, struct fake_device *fake_d, 
+					struct request_queue *q)
+{  
+  bool rw = bio_data_dir(bio);
+  struct throtl_grp *tg = fake_d->tg;
+  struct throtl_service_queue *sq = &tg->service_queue;
+  struct throtl_qnode *qn;
+  struct fake_device_member *fd_member;
+
+  /*
+   * If @tg doesn't currently have any bios queued in the same
+   * direction, queueing @bio can change when @tg should be
+   * dispatched.  Mark that @tg was empty.	This is automatically
+   * cleaered on the next tg_update_disptime().
+   */
+  if (!sq->nr_queued[rw])
+	  tg->flags |= THROTL_TG_WAS_EMPTY;
+
+  fd_member = queue_to_fd_member(fake_d, q);
+
+  BUG_ON(!fd_member);
+
+  tg = fd_member->tg;
+  sq = &tg->service_queue;
+  qn = &tg->qnode_on_self[rw];
+
+  throtl_qnode_add_bio_withoutblkg(bio, qn, &sq->queued[rw]);
+
+  sq->nr_queued[rw]++;
+  fake_d->tg->service_queue.nr_queued[rw]++;
+  throtl_enqueue_tg(tg);
+}
+
+
 static void tg_update_disptime(struct throtl_grp *tg)
 {
 	struct throtl_service_queue *sq = &tg->service_queue;
@@ -1142,6 +1333,55 @@ static void tg_update_disptime(struct throtl_grp *tg)
 	/* see throtl_add_bio_tg() */
 	tg->flags &= ~THROTL_TG_WAS_EMPTY;
 }
+
+static void tg_update_disptime_recursively(struct fake_device *fake_d)
+{
+	struct throtl_service_queue *sq;
+	unsigned long read_wait = -1, write_wait = -1, min_wait = -1, disptime;
+	struct bio *bio;
+        struct throtl_grp *tg;
+	struct fake_device_member *fd_member = fake_d->head;
+
+	while(fd_member != NULL){
+		tg = fd_member->tg;
+		sq = &tg->service_queue;
+		if ((bio = throtl_peek_queued(&sq->queued[READ])))
+			tg_may_dispatch(tg, bio, &read_wait);
+
+		if ((bio = throtl_peek_queued(&sq->queued[WRITE])))
+			tg_may_dispatch(tg, bio, &write_wait);
+
+		min_wait = min(read_wait, min_wait);
+		min_wait = min(write_wait, min_wait);
+
+		fd_member = fd_member->next;
+	}
+	
+
+	disptime = jiffies + min_wait;
+
+	tg = fake_d->tg;
+	/* Update dispatch time,no parent_sq so we don't need dequeue & enqueue */
+	tg->disptime = disptime;
+
+	/* see throtl_add_bio_tg() */
+	tg->flags &= ~THROTL_TG_WAS_EMPTY;
+		
+
+	fd_member = fake_d->head;
+	while(fd_member != NULL){
+		tg = fd_member->tg;
+		/* Update dispatch time */
+		throtl_dequeue_tg(tg);
+		tg->disptime = disptime;
+		throtl_enqueue_tg(tg);
+
+		/* see throtl_add_bio_tg() */
+		tg->flags &= ~THROTL_TG_WAS_EMPTY;
+	}
+
+}
+
 
 static void start_parent_slice_with_credit(struct throtl_grp *child_tg,
 					struct throtl_grp *parent_tg, bool rw)
@@ -1543,6 +1783,7 @@ static ssize_t tg_fd_set_conf(struct kernfs_open_file *of,
 		printk("the ret exist, ret = %d.\n",ret);
 		return ret;
 	}
+
 //	tg = blkg_to_tg(ctx.blkg);
 //	sq = &tg->service_queue;
 
@@ -1570,7 +1811,7 @@ static ssize_t tg_fd_set_conf(struct kernfs_open_file *of,
 	 * blk-throttle.
 	 */
 //	blkg_for_each_descendant_pre(blkg, pos_css, ctx.blkg)
-		tg_fd_update_has_rules(tg);
+		tg_fd_update_has_rules_recursively(fd_ctx.fake_d);
 	printk("update rules. tg->has_rules[0] = %d,tg->has_rules[1] = %d,tg->has_rules[2] = %d.\n",tg->has_rules[0],tg->has_rules[1],tg->has_rules[2]);
 
 	/*
@@ -1581,15 +1822,17 @@ static ssize_t tg_fd_set_conf(struct kernfs_open_file *of,
 	 * that a group's limit are dropped suddenly and we don't want to
 	 * account recently dispatched IO with new low rate.
 	 */
-	throtl_start_new_slice(tg, 0);
+	fd_throtl_init(blkcg);
+	
+	throtl_start_new_slice_recursively(fd_ctx.fake_d, 0);
 	printk("throtl_start_new_slice(tg, 0)\n");
-	throtl_start_new_slice(tg, 1);
+	throtl_start_new_slice_recursively(fd_ctx.fake_d, 1);
 	printk("throtl_start_new_slice(tg, 1)\n");
-	throtl_start_new_slice(tg, 2);
+	throtl_start_new_slice_recursively(fd_ctx.fake_d, 2);
 	printk("throtl_start_new_slice(tg, 2)\n");
 
 	if (tg->flags & THROTL_TG_PENDING) {
-		tg_update_disptime(tg);
+		tg_update_disptime_recursively(fd_ctx.fake_d);
 		printk("update_disaptime for pending.\n");
 //		throtl_schedule_next_dispatch(sq->parent_sq, true);
 	}
@@ -1776,9 +2019,9 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
 				printk("fake_d: id=%d,r_bps=%d,w_bps=%d,rw_bps=%d\n",fake_d->id,fake_d->tg->bps[0],fake_d->tg->bps[1],fake_d->tg->bps[2]);
 				if(queue_in_fake_d(fake_d,q))
 				{
-					if(!fake_d_has_limit(fake_d,rw,q) && !fake_d_has_limit(fake_d,RANDW,q))
-						throtl_update_fd_dispatch_stats(fake_d,bio->bi_iter.bi_size, bio->bi_rw);
-					else
+//					if(!fake_d_has_limit(fake_d,rw,q) && !fake_d_has_limit(fake_d,RANDW,q))
+//						throtl_update_fd_dispatch_stats(fake_d,bio->bi_iter.bi_size, bio->bi_rw);
+					if(fake_d_has_limit(fake_d,rw,q) || fake_d_has_limit(fake_d,RANDW,q))
 						without_limit = false;
 				}
 				fake_d = fake_d->next;
@@ -1848,7 +2091,7 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
 
 	bio_associate_current(bio);
 	tg->td->nr_queued[rw]++;
-	throtl_add_bio_tg(bio, qn, tg);
+	throtl_add_bio_fd_tg(bio, fake_d, q);
 	throttled = true;
 
 	/*
@@ -1863,19 +2106,24 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
 	}
 
 fake_device_check:
+	/* throttled bio was associated with native cgroup tg
+	 * if so, we should charge this bio in the relevant fake_d tg
+	 */
 	if (throttled) {
 		fake_d = blkcg->fd_head;
 		while(fake_d != NULL) {
 			if (queue_in_fake_d(fake_d, q) && fake_d_has_limit(fake_d, rw, q)) {
-				throtl_charge_bio(fake_d_to_tg(fake_d),bio);
+				throtl_charge_bio_recursively(fake_d, bio);
 			}
+			fake_d = fake_d->next;
 		}
 		goto out_unlock;
 	}
  	else {
 		fake_d = blkcg->fd_head;
 		while(fake_d != NULL) {
- 			if (queue_in_fake_d(fake_d, q) && fake_d_has_limit(fake_d, rw, q)) {
+			update_fd_queuenr(fake_d);
+ 			if (fake_d_has_limit(fake_d, rw, q)) {
 				tg = fake_d_to_tg(fake_d);
 				sq = &tg->service_queue;
 				if (sq->nr_queued[rw])
@@ -1886,7 +2134,7 @@ fake_device_check:
 					break;
 
 				/* within limits, let's charge and dispatch directly */
-				throtl_charge_bio(tg, bio);
+				throtl_charge_bio_recursively(fake_d, bio);
 
 				/*
 				 * We need to trim slice even when bios are not being queued
@@ -1900,21 +2148,26 @@ fake_device_check:
 				 * So keep on trimming slice even if bio is not queued.
 				 */
 				if(tg->has_rules[rw])
-					throtl_trim_slice(tg, rw);
+					throtl_trim_slice_recursively(fake_d, rw);
 				if(tg->has_rules[RANDW])
-					throtl_trim_slice(tg, RANDW);
+					throtl_trim_slice_recursively(fake_d, RANDW);
 
-				bio_associate_current(bio);
-				(q->td)->nr_queued[rw]++;
-				throtl_add_bio_tg(bio, qn, tg);
-				throttled = true;
 
-				if (tg->flags & THROTL_TG_WAS_EMPTY) {
-					tg_update_disptime(tg);
-					throtl_schedule_next_dispatch(tg->service_queue.parent_sq, true);
-				}
 			}
 			fake_d = fake_d->next;
+		}
+
+		bio_associate_current(bio);
+		(q->td)->nr_queued[rw]++;
+		throtl_add_bio_tg(bio, qn, tg);
+		throttled = true;
+
+		if (tg->flags & THROTL_TG_WAS_EMPTY) {
+			tg_update_disptime_recursively(fake_d);
+			struct fake_device_member *fd_member = queue_to_fd_member(fake_d, q);
+			BUG_ON(!fd_member);
+			tg = fd_member->tg;
+			throtl_schedule_next_dispatch(tg->service_queue.parent_sq, true);
 		}
 		
 	}
@@ -2038,4 +2291,5 @@ static int __init throtl_init(void)
 }
 
 module_init(throtl_init);
+
 
