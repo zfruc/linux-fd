@@ -434,7 +434,8 @@ static void fd_throtl_init(struct blkcg *blkcg)
 			list_add(&tg->stats_alloc_node, &tg_stats_alloc_list);
 			schedule_delayed_work(&tg_stats_alloc_work, 0);
 			spin_unlock_irqrestore(&tg_stats_alloc_lock, flags);
-	
+
+			fd_member = fd_member->next;	
 		}
 
 		fake_d = fake_d->next;
@@ -464,6 +465,7 @@ static void tg_fd_update_has_rules_recursively(struct fake_device *fake_d)
 {
 	int rw = 0;
 	struct fake_device_member *fd_member = fake_d->head;
+	struct throtl_grp *fd_tg = fake_d_to_tg(fake_d);
 	struct throtl_grp *tg = fake_d_to_tg(fake_d);
 	for (rw = READ; rw <= RANDW; rw++)
  		tg->has_rules[rw] = (tg->bps[rw] != -1 || tg->iops[rw] != -1);
@@ -471,8 +473,12 @@ static void tg_fd_update_has_rules_recursively(struct fake_device *fake_d)
 	while(fd_member != NULL){
 		tg = fd_member->tg;
 		
-		for (rw = READ; rw <= RANDW; rw++)
+		for (rw = READ; rw <= RANDW; rw++){
+			tg->bps[rw] = fd_tg->bps[rw];
+			tg->iops[rw] = fd_tg->iops[rw];
 			tg->has_rules[rw] = (tg->bps[rw] != -1 || tg->iops[rw] != -1);
+		}
+		fd_member = fd_member->next;
 	}
 
 }
@@ -746,6 +752,7 @@ static inline void throtl_start_new_slice_recursively(struct fake_device *fake_d
 		tg = fd_member->tg;
 		
 		throtl_start_new_slice(tg,rw);
+		fd_member = fd_member->next;
 	}
 }
 
@@ -2078,8 +2085,12 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
 		qn = &tg->qnode_on_parent[rw];
 		sq = sq->parent_sq;
 		tg = sq_to_tg(sq);
-		if (!tg)
+		if (!tg){
+		    if(blkcg->fd_head != NULL)
 			goto fake_device_check;
+		    else
+			goto out_unlock;
+		}
 	}
 
 	/* out-of-limit, queue to @tg */
