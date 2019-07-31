@@ -1068,6 +1068,7 @@ static bool tg_may_dispatch(struct throtl_grp *tg, struct bio *bio,
     if (tg->bps[rw] == -1 && tg->iops[rw] == -1 && tg->bps[RANDW] == -1 && tg->iops[RANDW] == -1) {
         if (wait)
             *wait = 0;
+        printk("tg_mat_dispatch return 1 for no_rules,tg addr = %llu.\n",tg);
         return true;
     }
 
@@ -1094,6 +1095,7 @@ static bool tg_may_dispatch(struct throtl_grp *tg, struct bio *bio,
         tg_with_in_iops_limit(tg, bio, &iops_wait)) {
         if (wait)
             *wait = 0;
+        printk("tg_may_dispatch return 1 for within limit.tg->bps[0] = %llu,tg->slice_start[0]=%llu,tg->slice_end[0]=%llu, tg addr = %llu.\n",tg->bps[0],tg->slice_start[0],tg->slice_end[0],tg);
         return 1;
     }
 
@@ -1809,7 +1811,8 @@ static ssize_t tg_fd_set_conf(struct kernfs_open_file *of,
     else
         *(unsigned int *)((void *)tg + of_cft(of)->private) = fd_ctx.v;
     printk("the parameter is_u64 = %d.\n",is_u64);
-    printk("tg->private = %d,tg->bps[0] = %d.\n",*(unsigned int *)((void *)tg + of_cft(of)->private),tg->bps[0]);
+    printk("tg->private = %d,tg->bps[0] = %d,tg addr=%llu.\n",*(unsigned int *)((void *)tg + of_cft(of)->private),tg->bps[0],tg);
+    printk("in set_conf, fake_d addr = %llu, blkcg->fd_head addr = %llu.\n",fd_ctx.fake_d,blkcg->fd_head);
 
     //throtl_log(&tg->service_queue,"limit change rbps=%llu wbps=%llu rwbps=%llu riops=%u wiops=%u rwiops=%u",tg->bps[READ], tg->bps[WRITE],tg->bps[RANDW],tg->iops[READ], tg->iops[WRITE],tg->iops[RANDW],);
 
@@ -2063,7 +2066,7 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
 
     sq = &tg->service_queue;
 
-    printk("BLK_THROTL_BIO:next, go tg dispath loop.\n");
+    printk("BLK_THROTL_BIO:next, go tg dispatch loop.\n");
     while (true) {
         /* throtl is FIFO - if bios are already queued, should queue */
         if (sq->nr_queued[rw])
@@ -2161,6 +2164,7 @@ fake_device_check:
     }
     else {
         fake_d = blkcg->fd_head;
+        printk("in blk_throtl_bio, blkcg->fd_head addr = %llu.\n",fake_d);
         printk("BLK_THROTL_BIO: bio was not throttled by origin tg.\n");
 //        msleep(15000);
         while(true) {
@@ -2171,6 +2175,7 @@ fake_device_check:
                 printk("BLK_THROTL_BIO: current fake_d has limit on queue.\n");
               //msleep(15000);
                 tg = fake_d_to_tg(fake_d);
+                printk("in blk_throtl_bio, fake_d_to_tg addr = %llu,tg->bps[0]=%llu.\n",tg,tg->bps[0]);
                 sq = &tg->service_queue;
                 if (sq->nr_queued[rw]){
 		    printk("break fake_d check because sq->nr_queued[rw] = %d.\n",sq->nr_queued[rw]);
