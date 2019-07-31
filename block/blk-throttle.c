@@ -721,10 +721,10 @@ static inline void throtl_start_new_slice_with_credit(struct throtl_grp *tg,
         tg->slice_start[rw] = start;
 
     tg->slice_end[rw] = jiffies + throtl_slice;
-    throtl_log(&tg->service_queue,
-           "[%c] new slice with credit start=%lu end=%lu jiffies=%lu",
-           rw == READ ? 'R' : 'W', tg->slice_start[rw],
-           tg->slice_end[rw], jiffies);
+//    throtl_log(&tg->service_queue,
+//           "[%c] new slice with credit start=%lu end=%lu jiffies=%lu",
+//           rw == READ ? 'R' : 'W', tg->slice_start[rw],
+//           tg->slice_end[rw], jiffies);
 }
 
 static inline void throtl_start_new_slice(struct throtl_grp *tg, bool rw)
@@ -768,10 +768,10 @@ static inline void throtl_extend_slice(struct throtl_grp *tg, bool rw,
                        unsigned long jiffy_end)
 {
     tg->slice_end[rw] = roundup(jiffy_end, throtl_slice);
-    throtl_log(&tg->service_queue,
-           "[%c] extend slice start=%lu end=%lu jiffies=%lu",
-           rw == READ ? 'R' : 'W', tg->slice_start[rw],
-           tg->slice_end[rw], jiffies);
+//    throtl_log(&tg->service_queue,
+//           "[%c] extend slice start=%lu end=%lu jiffies=%lu",
+//           rw == READ ? 'R' : 'W', tg->slice_start[rw],
+//           tg->slice_end[rw], jiffies);
 }
 
 /* Determine if previously allocated or extended slice is complete or not */
@@ -836,10 +836,10 @@ static bool throtl_slice_used(struct throtl_grp *tg, bool rw)
 
     tg->slice_start[rw] += nr_slices * throtl_slice;
 
-    throtl_log(&tg->service_queue,
-           "[%c] trim slice nr=%lu bytes=%llu io=%lu start=%lu end=%lu jiffies=%lu",
-           rw == READ ? 'R' : 'W', nr_slices, bytes_trim, io_trim,
-           tg->slice_start[rw], tg->slice_end[rw], jiffies);
+//    throtl_log(&tg->service_queue,
+//           "[%c] trim slice nr=%lu bytes=%llu io=%lu start=%lu end=%lu jiffies=%lu",
+//           rw == READ ? 'R' : 'W', nr_slices, bytes_trim, io_trim,
+//           tg->slice_start[rw], tg->slice_end[rw], jiffies);
 }
 
 void throtl_trim_slice_recursively(struct fake_device *fake_d, unsigned int rw)
@@ -852,6 +852,7 @@ void throtl_trim_slice_recursively(struct fake_device *fake_d, unsigned int rw)
     while(fd_member != NULL){
         tg = fd_member->tg;
         throtl_trim_slice(tg,rw);
+        fd_member = fd_member->next;
     }
 }
 
@@ -1060,8 +1061,8 @@ static bool tg_may_dispatch(struct throtl_grp *tg, struct bio *bio,
      * this function with a different bio if there are other bios
      * queued.
      */
-    BUG_ON(tg->service_queue.nr_queued[rw] &&
-           bio != throtl_peek_queued(&tg->service_queue.queued[rw]));
+//    BUG_ON(tg->service_queue.nr_queued[rw] &&
+//           bio != throtl_peek_queued(&tg->service_queue.queued[rw]));
 
     /* If tg->bps = -1, then BW is unlimited */
     if (tg->bps[rw] == -1 && tg->iops[rw] == -1 && tg->bps[RANDW] == -1 && tg->iops[RANDW] == -1) {
@@ -1206,6 +1207,7 @@ static void throtl_charge_bio_recursively(struct fake_device *fake_d, struct bio
     while(fd_member != NULL){
         tg = fd_member->tg;
         throtl_charge_bio(tg,bio);
+        fd_member = fd_member->next;
     }
 }
 
@@ -1996,12 +1998,12 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
     bool throttled = false;
 
     printk("BLK_THROTL_BIO:now in blk_throtl_bio function.\n");
-    msleep(15000);
+//   msleep(15000);
     /* see throtl_charge_bio() */
     if (bio->bi_rw & REQ_THROTTLED)
         goto out;
     printk("BLK_THROTL_BIO:pass goto out test.\n");
-    msleep(15000);
+//    msleep(15000);
 
     /*
      * A throtl_grp pointer retrieved under rcu can be used to access
@@ -2011,7 +2013,7 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
     rcu_read_lock();
     blkcg = bio_blkcg(bio);
     printk("BLK_THROTL_BIO:blkcg_addr = %llu\n",blkcg);
-    msleep(15000);
+  //  msleep(15000);
     tg = throtl_lookup_tg(td, blkcg);
     if (tg) {
         bool without_limit = true;
@@ -2024,14 +2026,14 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
              * was included.
              */
             printk("BLK_THROTL_BIO:check whether tg has_rules was done.\n");
-            msleep(15000);
+//            msleep(15000);
             fake_d = blkcg->fd_head;
             printk("BLK_THROTL_BIO:blkcg->fd_head addr = %llu\n",blkcg->fd_head);
-            msleep(15000);
+//            msleep(15000);
             while(fake_d != NULL)
             {
                 printk("BLK_THROTL_BIO:fake_d: id=%d,r_bps=%d,w_bps=%d,rw_bps=%d\n",fake_d->id,fake_d->tg->bps[0],fake_d->tg->bps[1],fake_d->tg->bps[2]);
-                msleep(15000);
+//                msleep(15000);
                 if(queue_in_fake_d(fake_d,q))
                 {
 //                  if(!fake_d_has_limit(fake_d,rw,q) && !fake_d_has_limit(fake_d,RANDW,q))
@@ -2041,7 +2043,7 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
                 }
                 fake_d = fake_d->next;
                 printk("BLK_THROTL_BIO:now in fake_d has_rules check loop.\n");
-                msleep(15000);
+//                msleep(15000);
             }
             if(without_limit)
                 goto out_unlock_rcu;
@@ -2054,7 +2056,7 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
      */
     spin_lock_irq(q->queue_lock);
     printk("BLK_THROTL_BIO:now we has got queue spin_lock.\n");
-    msleep(15000);
+    //msleep(15000);
     tg = throtl_lookup_create_tg(td, blkcg);
     if (unlikely(!tg))
         goto fake_device_check;
@@ -2074,7 +2076,7 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
         /* within limits, let's charge and dispatch directly */
         throtl_charge_bio(tg, bio);
         printk("BLK_THROTL_BIO: within limit, origin tg was charged.\n");
-        msleep(15000);
+        //msleep(15000);
 
         /*
          * We need to trim slice even when bios are not being queued
@@ -2092,7 +2094,7 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
         if(tg->has_rules[RANDW])
             throtl_trim_slice(tg, RANDW);
         printk("BLK_THROTL_BIO: trim origin tg's slice\n");
-        msleep(15000);
+        //msleep(15000);
 
         /*
          * @bio passed through this layer without being throttled.
@@ -2104,10 +2106,12 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
         tg = sq_to_tg(sq);
         if (!tg){
             printk("BLK_THROTL_BIO: parent tg not exist.\n");
-            msleep(15000);
-            if(blkcg->fd_head != NULL)
+           // msleep(15000);
+            if(blkcg->fd_head != NULL){
+		printk("blkcg->fd_head exist.\n");
                 goto fake_device_check;
-            else
+            }
+	    else
                 goto out_unlock;
         }
     }
@@ -2137,18 +2141,18 @@ bool blk_throtl_bio(struct request_queue *q, struct bio *bio)
 
 fake_device_check:
     printk("BLK_THROTL_BIO: now we come to fake_device_check.\n");
-    msleep(15000);
+//    msleep(15000);
     /* throttled bio was associated with native cgroup tg
      * if so, we should charge this bio in the relevant fake_d tg
      */
     if (throttled) {
         fake_d = blkcg->fd_head;
         printk("BLK_THROTL_BIO: bio was throttled by origin tg.\n");
-        msleep(15000);
+  //      //msleep(15000);
         while(fake_d != NULL) {
             if (queue_in_fake_d(fake_d, q) && fake_d_has_limit(fake_d, rw, q)) {
                 printk("BLK_THROTL_BIO: queue_in_fake_d, we will charge this bio recursively.\n");
-                msleep(15000);
+                //msleep(15000);
                 throtl_charge_bio_recursively(fake_d, bio);
             }
             fake_d = fake_d->next;
@@ -2158,30 +2162,31 @@ fake_device_check:
     else {
         fake_d = blkcg->fd_head;
         printk("BLK_THROTL_BIO: bio was not throttled by origin tg.\n");
-        msleep(15000);
-        while(fake_d != NULL) {
+//        msleep(15000);
+        while(true) {
             printk("BLK_THROTL_BIO: fake_d not null, next we will update queuenr.\n");
-            msleep(15000);
-            update_fd_queuenr(fake_d);
+ //           msleep(15000);
+           update_fd_queuenr(fake_d);
             if (fake_d_has_limit(fake_d, rw, q)) {
                 printk("BLK_THROTL_BIO: current fake_d has limit on queue.\n");
-                msleep(15000);
+              //msleep(15000);
                 tg = fake_d_to_tg(fake_d);
                 sq = &tg->service_queue;
-                if (sq->nr_queued[rw])
+                if (sq->nr_queued[rw]){
+		    printk("break fake_d check because sq->nr_queued[rw] = %d.\n",sq->nr_queued[rw]);
                     break;
+		}
 
-                /* if above limits, break to queue */
-                if (!tg_may_dispatch(tg, bio, NULL))
-                {
-                    printk("BLK_THROTL_BIO: over fake_d limit, next break loop.\n");
-                    msleep(15000);
+               /* if above limits, break to queue */
+                if (!tg_may_dispatch(tg, bio, NULL)){
+                   printk("BLK_THROTL_BIO: over fake_d limit, next break loop.\n");
+                   //msleep(15000);
                     break;
                 }
 
-                /* within limits, let's charge and dispatch directly */
+               /* within limits, let's charge and dispatch directly */
                 printk("BLK_THROTL_BIO: within fake_d limit, charge fake_d recursively.\n");
-                msleep(15000);
+               //msleep(15000);
                 throtl_charge_bio_recursively(fake_d, bio);
 
                 /*
@@ -2200,38 +2205,45 @@ fake_device_check:
                 if(tg->has_rules[RANDW])
                     throtl_trim_slice_recursively(fake_d, RANDW);
                 printk("BLK_THROTL_BIO: trim fake_d's tg recursively.\n");
-                msleep(15000);
+               // msleep(15000);
 
             }
             fake_d = fake_d->next;
+            if(fake_d == NULL){
+		printk("fake_d == NULL, goto out_unlock.\n");
+		goto out_unlock;
+	    }
+	    printk("fake_d is not null, go next round.\n");
         }
 
         printk("BLK_THROTL_BIO: next associate bio with current process.\n");
-        msleep(15000);
+        //msleep(15000);
         bio_associate_current(bio);
         (q->td)->nr_queued[rw]++;
         printk("BLK_THROTL_BIO: add bio to fake_device_member's tg.\n");
-        msleep(15000);
+        //msleep(15000);
         throtl_add_bio_tg(bio, qn, queue_to_fd_member(fake_d, q)->tg);
         throttled = true;
 
         if (tg->flags & THROTL_TG_WAS_EMPTY) {
             printk("BLK_THROTL_BIO: tg_update_disptime_recursively for target fake_d.\n");
-            msleep(15000);
+            //msleep(15000);
             tg_update_disptime_recursively(fake_d);
             struct fake_device_member *fd_member = queue_to_fd_member(fake_d, q);
             BUG_ON(!fd_member);
             tg = fd_member->tg;
             printk("BLK_THROTL_BIO: throtl_schedule_next_dispatch for fake_device_member's tg.\n");
-            msleep(15000);
+            //msleep(15000);
             throtl_schedule_next_dispatch(tg->service_queue.parent_sq, true);
         }
         
     }
 
 out_unlock:
+    printk("try to unlock queue_lock.\n");
     spin_unlock_irq(q->queue_lock);
 out_unlock_rcu:
+    printk("try to unlock ruc_read_lock.\n");
     rcu_read_unlock();
 out:
     /*
@@ -2241,6 +2253,7 @@ out:
      */
     if (!throttled)
         bio->bi_rw &= ~REQ_THROTTLED;
+    printk("return value of throttled = %d.\n",throttled);
     return throttled;
 }
 
