@@ -1390,6 +1390,7 @@ static void tg_update_disptime_recursively(struct fake_device *fake_d)
 
         /* see throtl_add_bio_tg() */
         tg->flags &= ~THROTL_TG_WAS_EMPTY;
+        fd_member = fd_member->next;
     }
 
 }
@@ -1804,14 +1805,14 @@ static ssize_t tg_fd_set_conf(struct kernfs_open_file *of,
     printk("now fd_ctx.v = %d.\n",fd_ctx.v);
 
     tg = fake_d_to_tg(fd_ctx.fake_d);
-    printk("get tg from fake_d_to_tg. tg->bps[0] = %d.\n",tg->bps[0]);
+    printk("get tg from fake_d_to_tg. tg->bps[0] = %llu.\n",tg->bps[0]);
 
     if (is_u64)
         *(u64 *)((void *)tg + of_cft(of)->private) = fd_ctx.v;
     else
         *(unsigned int *)((void *)tg + of_cft(of)->private) = fd_ctx.v;
     printk("the parameter is_u64 = %d.\n",is_u64);
-    printk("tg->private = %d,tg->bps[0] = %d,tg addr=%llu.\n",*(unsigned int *)((void *)tg + of_cft(of)->private),tg->bps[0],tg);
+    printk("tg->private = %llu,tg->bps[0] = %llu,tg addr=%llu.\n",*(unsigned int *)((void *)tg + of_cft(of)->private),tg->bps[0],tg);
     printk("in set_conf, fake_d addr = %llu, blkcg->fd_head addr = %llu.\n",fd_ctx.fake_d,blkcg->fd_head);
 
     //throtl_log(&tg->service_queue,"limit change rbps=%llu wbps=%llu rwbps=%llu riops=%u wiops=%u rwiops=%u",tg->bps[READ], tg->bps[WRITE],tg->bps[RANDW],tg->iops[READ], tg->iops[WRITE],tg->iops[RANDW],);
@@ -1965,7 +1966,7 @@ static struct cftype throtl_files[] = {
     {
         .name = "throttle.hybrid_read_bps_device",
         .private = offsetof(struct throtl_grp, bps[READ]),
-        .write = tg_fd_set_conf_uint,
+        .write = tg_fd_set_conf_u64,
     },
     { } /* terminate */
 };
@@ -2230,8 +2231,8 @@ fake_device_check:
         throtl_add_bio_tg(bio, qn, queue_to_fd_member(fake_d, q)->tg);
         throttled = true;
 
-        if (tg->flags & THROTL_TG_WAS_EMPTY) {
-            printk("BLK_THROTL_BIO: tg_update_disptime_recursively for target fake_d.\n");
+//        if (tg->flags & THROTL_TG_WAS_EMPTY) {
+//            printk("BLK_THROTL_BIO: tg_update_disptime_recursively for target fake_d.\n");
             //msleep(15000);
             tg_update_disptime_recursively(fake_d);
             struct fake_device_member *fd_member = queue_to_fd_member(fake_d, q);
@@ -2240,7 +2241,7 @@ fake_device_check:
             printk("BLK_THROTL_BIO: throtl_schedule_next_dispatch for fake_device_member's tg.\n");
             //msleep(15000);
             throtl_schedule_next_dispatch(tg->service_queue.parent_sq, true);
-        }
+//        }
         
     }
 
