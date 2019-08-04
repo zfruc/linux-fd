@@ -313,8 +313,10 @@ static struct bio *throtl_pop_queued(struct list_head *queued,
         list_del_init(&qn->node);
         if (tg_to_put)
             *tg_to_put = qn->tg;
-        else
-            blkg_put(tg_to_blkg(qn->tg));
+        else{
+            if(!qn->tg->fake)
+                blkg_put(tg_to_blkg(qn->tg));
+        }
     } else {
         list_move_tail(&qn->node, queued);
     }
@@ -384,6 +386,7 @@ static void throtl_pd_init(struct blkcg_gq *blkg)
     tg->iops[READ] = -1;
     tg->iops[WRITE] = -1;
     tg->iops[RANDW] = -1;
+    tg->fake = false;
 
     /*
      * Ugh... We need to perform per-cpu allocation for tg->stats_cpu
@@ -1413,6 +1416,8 @@ static void tg_dispatch_one_bio(struct throtl_grp *tg, bool rw)
     struct throtl_grp *parent_tg = sq_to_tg(parent_sq);
     struct throtl_grp *tg_to_put = NULL;
     struct bio *bio;
+    struct blkcg *blkcg;
+    struct fake_device *fake_d;
 
     /*
      * @bio is being transferred from @tg to @parent_sq.  Popping a bio
@@ -1422,8 +1427,13 @@ static void tg_dispatch_one_bio(struct throtl_grp *tg, bool rw)
      */
     bio = throtl_pop_queued(&sq->queued[rw], &tg_to_put);
     sq->nr_queued[rw]--;
+    blkcg = bio_blkcg(bio);
+    fake_d = tg->fake_d;
 
-    throtl_charge_bio(tg, bio);
+    if(tg->fake)
+        throtl_charge_bio_recursively(fake_d,bio);
+    else
+        throtl_charge_bio(tg, bio);
 
     /*
      * If our parent is another tg, we just need to transfer @bio to
@@ -1446,7 +1456,7 @@ static void tg_dispatch_one_bio(struct throtl_grp *tg, bool rw)
             struct request_queue *q = bdev_get_queue(bio->bi_bdev);
             struct throtl_data *td = q->td;
             struct throtl_service_queue *td_sq = &td->service_queue;
-            throtl_qnode_add_bio(bio, &tg->qnode_on_parent[rw],
+            throtl_qnode_add_bio_withoutblkg(bio, &tg->qnode_on_parent[rw],
                 &td_sq->queued[rw]);
             BUG_ON(td->nr_queued[rw] <= 0);
             td->nr_queued[rw]--;
@@ -1460,12 +1470,20 @@ static void tg_dispatch_one_bio(struct throtl_grp *tg, bool rw)
         }       
     }
 
-    if(tg->has_rules[rw])
-        throtl_trim_slice(tg, rw);
-    if(tg->has_rules[RANDW])
-        throtl_trim_slice(tg, RANDW);
+    if(tg->fake){
+        if(tg->has_rules[rw])
+            throtl_trim_slice_recursively(fake_d, rw);
+        if(tg->has_rules[RANDW])
+            throtl_trim_slice_recursively(fake_d, RANDW);
+    }
+    else{
+        if(tg->has_rules[rw])
+            throtl_trim_slice(tg, rw);
+        if(tg->has_rules[RANDW])
+            throtl_trim_slice(tg, RANDW);
+    }
 
-    if (tg_to_put)
+    if (tg_to_put && !tg->fake)
         blkg_put(tg_to_blkg(tg_to_put));
 }
 
@@ -2235,6 +2253,7 @@ fake_device_check:
 //            printk("BLK_THROTL_BIO: tg_update_disptime_recursively for target fake_d.\n");
             //msleep(15000);
             tg_update_disptime_recursively(fake_d);
+            printk("BLK_THROTL_BIO: fake_d's tg->disptime = %lu.\n",fake_d->tg->disptime);
             struct fake_device_member *fd_member = queue_to_fd_member(fake_d, q);
             BUG_ON(!fd_member);
             tg = fd_member->tg;

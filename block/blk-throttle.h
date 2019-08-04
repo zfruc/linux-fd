@@ -92,6 +92,7 @@ struct throtl_grp {
 	struct list_head stats_alloc_node;
 
 	struct fake_device *fake_d;
+        bool fake;
 };
 
 

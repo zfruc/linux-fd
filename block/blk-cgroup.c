@@ -853,6 +853,7 @@ EXPORT_SYMBOL_GPL(blkg_conf_prep);
 
 void tg_init(struct throtl_grp *tg)
 {
+        tg->fake = true;
 	tg->bps[0] = tg->bps[1] = tg->bps[2] = -1;
 	tg->iops[0] = tg->iops[1] = tg->iops[2] = -1;
 	tg->has_rules[0] = tg->has_rules[1] = tg->has_rules[2] = false;
@@ -890,6 +891,7 @@ fd_member_alloc:
 	fd_member->next = fake_d->head;
 	fake_d->head = fd_member;
 	fd_member->queue = disk->queue;
+        tg->fake_d = fake_d;
 
 	tg_init(tg);
 	fd_member->tg = tg;
