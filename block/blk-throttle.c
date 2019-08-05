@@ -1986,6 +1986,11 @@ static struct cftype throtl_files[] = {
         .private = offsetof(struct throtl_grp, bps[READ]),
         .write = tg_fd_set_conf_u64,
     },
+    {
+        .name = "throttle.hybrid_write_bps_device",
+        .private = offsetof(struct throtl_grp, bps[WRITE]),
+        .write = tg_fd_set_conf_u64,
+    },
     { } /* terminate */
 };
 
